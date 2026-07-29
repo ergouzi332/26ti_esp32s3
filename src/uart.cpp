@@ -21,3 +21,11 @@ void Uart_SendER(int16_t er, uint8_t flag) {
 void Uart_SendStr(const char *s) {
     Serial2.print(s);
 }
+
+
+uint8_t Uart_CheckCmd() {
+    if (Serial2.available()) {
+        return (uint8_t)Serial2.read();
+    }
+    return 0;
+}

@@ -6,5 +6,6 @@
 void Uart_Init();
 void Uart_SendER(int16_t er, uint8_t flag);
 void Uart_SendStr(const char *s);
+uint8_t Uart_CheckCmd();
 
 #endif

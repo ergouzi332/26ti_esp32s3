@@ -2,12 +2,13 @@
 #include "gray.h"
 #include "oled.h"
 #include "uart.h"
+#include "oled.h"
 
 // ============== IR ==============
 #define PIN_IR_EN   11
 
 // ============== Global ==============
-volatile uint8_t  g_stop    = 0;     // 0=运行
+volatile uint8_t  g_stop    = 1;     // 1=等待START 0=运行
 volatile uint16_t g_runMs   = 0;
 unsigned long     _t0       = 0;
 
@@ -29,7 +30,10 @@ void taskGray(void *pv) {
             Serial1.printf("ER:%+4d  G:%02X\n", g_er, g_gray);
         }
 
-        g_runMs = (uint16_t)(millis() - _t0);
+        uint8_t cmd = Uart_CheckCmd();
+        if (cmd == 0x01) { _t0 = millis(); g_stop = 0; }
+        else if (cmd == 0x02 || cmd == 0x03) { g_stop = 1; }
+        if (!g_stop) { g_runMs = (uint16_t)(millis() - _t0); }
         vTaskDelayUntil(&last, pdMS_TO_TICKS(5));
     }
 }
@@ -67,9 +71,9 @@ void setup() {
     Uart_Init();
     Oled_Init();
 
-    // 上电自动计时
-    _t0 = millis();
-    g_stop = 0;
+    // 等待TI START命令
+    _t0 = 0;
+    g_stop = 1;
 
     xTaskCreatePinnedToCore(taskGray, "Gray", 4096, NULL, 3, &thGray, 0);
     xTaskCreatePinnedToCore(taskBall, "Ball", 4096, NULL, 2, &thBall, 1);
