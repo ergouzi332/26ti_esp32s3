@@ -1,59 +1,73 @@
 ﻿#include "gray.h"
 #include <Arduino.h>
 
-const uint8_t ADC_PIN[8] = {6, 7, 8, 3, 9, 10, 1, 2};
-const int8_t  W[8]       = {-7, -5, -3, -1, +1, +3, +5, +7};
+const int8_t W[8] = {-7, -5, -3, -1, +1, +3, +5, +7};
 
 volatile int16_t  g_er       = 0;
 volatile uint8_t  g_gray     = 0;
 volatile bool     g_lost     = false;
 volatile bool     g_allBlack = false;
 
-#define FILTER_ALPHA 0.7f
+static const uint8_t ADDR_PIN[3] = {PIN_GRAY_AD0, PIN_GRAY_AD1, PIN_GRAY_AD2};
 
 void Gray_Init() {
-    analogReadResolution(12);
+    pinMode(PIN_GRAY_OUT, INPUT);
+    for (int i = 0; i < 3; i++) {
+        pinMode(ADDR_PIN[i], OUTPUT);
+        digitalWrite(ADDR_PIN[i], LOW);
+    }
+}
+
+// 选择通道: 通过AD0/1/2设置地址
+static void select_channel(uint8_t ch) {
+    digitalWrite(ADDR_PIN[0], (ch & 1) ? HIGH : LOW);
+    digitalWrite(ADDR_PIN[1], (ch & 2) ? HIGH : LOW);
+    digitalWrite(ADDR_PIN[2], (ch & 4) ? HIGH : LOW);
+    delayMicroseconds(50);  // 等待多路开关稳定
+}
+
+// 0=黑线(低电平), 1=白纸(高电平)
+static uint8_t read_channel(uint8_t ch) {
+    select_channel(ch);
+    return (uint8_t)digitalRead(PIN_GRAY_OUT);
 }
 
 void Gray_Sample() {
-    uint16_t raw[8];
-    uint16_t hi = 0, lo = 4095;
-    for (int i = 0; i < 8; i++) {
-        raw[i] = analogRead(ADC_PIN[i]);
-        if (raw[i] > hi) hi = raw[i];
-        if (raw[i] < lo) lo = raw[i];
-    }
-    uint16_t span = hi - lo;
-    uint8_t mask  = 0;
+    uint8_t bits = 0;
+    uint8_t black_cnt = 0;
+    int32_t sumW = 0;
 
-    if (span < 300) {
-        if (hi > 3500) {
-            g_lost = true; g_allBlack = false; g_er = 0; g_gray = 0xFF;
-            return;
-        } else if (lo < 500) {
-            g_allBlack = true; g_lost = false; g_er = 0; g_gray = 0x00;
-            return;
-        } else {
-            g_gray = 0; return;
+    for (int i = 0; i < 8; i++) {
+        uint8_t val = read_channel(i);  // 1=白, 0=黑
+        if (val == 0) {  // 黑线
+            bits |= (1 << (7 - i));  // 高位=左
+            sumW += W[i];
+            black_cnt++;
         }
     }
-    g_lost = false; g_allBlack = false;
 
-    uint16_t thr = (hi + lo) / 2;
-    int32_t sumW = 0, sumV = 0;
-    for (int i = 0; i < 8; i++) {
-        if (raw[i] < thr) {
-            uint16_t deep = thr - raw[i];
-            sumW += W[i] * deep;
-            sumV += deep;
-            mask |= (1 << (7 - i));
-        }
-    }
-    if (sumV > 0) {
-        int16_t erRaw = (int16_t)(sumW / sumV);
-        g_er = (int16_t)(g_er * (1.0f - FILTER_ALPHA) + erRaw * FILTER_ALPHA);
-    } else {
+    g_gray = bits;
+
+    // 全白 = 丢线
+    if (black_cnt == 0) {
+        g_lost = true;
+        g_allBlack = false;
         g_er = 0;
+        return;
     }
-    g_gray = mask;
+
+    // 全黑 = 转弯触发
+    if (black_cnt == 8) {
+        g_allBlack = true;
+        g_lost = false;
+        g_er = 0;
+        return;
+    }
+
+    g_lost = false;
+    g_allBlack = false;
+
+    // 直接累加权重（匹配旧TI稳定版：w[i]直接加，不取反）
+    int16_t erRaw = (int16_t)sumW;
+    g_er = (int16_t)(g_er * 0.3f + erRaw * 0.7f);
 }

@@ -24,6 +24,10 @@ void taskGray(void *pv) {
 
         uint8_t flag = (g_lost ? 1:0) | ((g_allBlack?1:0)<<1);
         Uart_SendER(g_er, flag);
+        static uint32_t lastPrint = 0;
+        if (millis() - lastPrint >= 200) { lastPrint = millis();
+            Serial1.printf("ER:%+4d  G:%02X\n", g_er, g_gray);
+        }
 
         g_runMs = (uint16_t)(millis() - _t0);
         vTaskDelayUntil(&last, pdMS_TO_TICKS(5));
@@ -51,6 +55,7 @@ void taskOled(void *pv) {
 // ============== Setup ==============
 void setup() {
     Serial.begin(115200);
+    Serial1.begin(115200, SERIAL_8N1, 9, 8);
     delay(100);
     Serial.println("===== 26TI ESP32 Start =====");
 

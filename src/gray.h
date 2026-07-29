@@ -3,9 +3,13 @@
 
 #include <stdint.h>
 
-extern const uint8_t ADC_PIN[8];
-extern const int8_t  W[8];
+// 数字灰度引脚 (复用型: OUT + AD0/1/2)
+#define PIN_GRAY_OUT   6
+#define PIN_GRAY_AD0   7
+#define PIN_GRAY_AD1   15
+#define PIN_GRAY_AD2   16
 
+extern const int8_t W[8];
 extern volatile int16_t  g_er;
 extern volatile uint8_t  g_gray;
 extern volatile bool     g_lost;
