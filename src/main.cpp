@@ -1,0 +1,76 @@
+﻿#include <Arduino.h>
+#include "gray.h"
+#include "oled.h"
+#include "uart.h"
+
+// ============== IR ==============
+#define PIN_IR_EN   11
+
+// ============== Global ==============
+volatile uint8_t  g_stop    = 0;     // 0=运行
+volatile uint16_t g_runMs   = 0;
+unsigned long     _t0       = 0;
+
+// ============== RTOS Handles ==============
+TaskHandle_t thGray = NULL;
+TaskHandle_t thBall = NULL;
+TaskHandle_t thOled = NULL;
+
+// ============== Task: Gray (5ms, core 0) ==============
+void taskGray(void *pv) {
+    TickType_t last = xTaskGetTickCount();
+    while (1) {
+        Gray_Sample();
+
+        uint8_t flag = (g_lost ? 1:0) | ((g_allBlack?1:0)<<1);
+        Uart_SendER(g_er, flag);
+
+        g_runMs = (uint16_t)(millis() - _t0);
+        vTaskDelayUntil(&last, pdMS_TO_TICKS(5));
+    }
+}
+
+// ============== Task: Ball (10ms, core 1) ==============
+void taskBall(void *pv) {
+    TickType_t last = xTaskGetTickCount();
+    while (1) {
+        // TODO: K230 -> Ball PID -> Servo
+        vTaskDelayUntil(&last, pdMS_TO_TICKS(10));
+    }
+}
+
+// ============== Task: OLED (100ms, core 1) ==============
+void taskOled(void *pv) {
+    TickType_t last = xTaskGetTickCount();
+    while (1) {
+        Oled_Update();
+        vTaskDelayUntil(&last, pdMS_TO_TICKS(100));
+    }
+}
+
+// ============== Setup ==============
+void setup() {
+    Serial.begin(115200);
+    delay(100);
+    Serial.println("===== 26TI ESP32 Start =====");
+
+    pinMode(PIN_IR_EN, OUTPUT);
+    digitalWrite(PIN_IR_EN, HIGH);
+    Serial.println("[IR] ON");
+
+    Gray_Init();
+    Uart_Init();
+    Oled_Init();
+
+    // 上电自动计时
+    _t0 = millis();
+    g_stop = 0;
+
+    xTaskCreatePinnedToCore(taskGray, "Gray", 4096, NULL, 3, &thGray, 0);
+    xTaskCreatePinnedToCore(taskBall, "Ball", 4096, NULL, 2, &thBall, 1);
+    xTaskCreatePinnedToCore(taskOled, "Oled", 4096, NULL, 1, &thOled, 1);
+
+    vTaskDelete(NULL);
+}
+
+void loop() {}
