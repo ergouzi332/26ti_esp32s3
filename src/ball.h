@@ -31,9 +31,12 @@
 
 void Ball_Init();
 void Ball_Start();               // 第三问：O -> +5cm -> -5cm
+void Ball_StartQ4();
 void Ball_Stop();                // 停止（摆杆回水平）
 void Ball_Update(int16_t ballX); // 每20ms调用：钢球位置闭环
 bool Ball_IsDone();              // 是否已稳定在 -5cm
 int16_t Ball_GetTargetX();       // 当前目标像素位置
+
+uint8_t Ball_GetPhase();
 
 #endif

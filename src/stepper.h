@@ -27,4 +27,6 @@ void Stepper_SetTarget(int32_t target);  // 目标位置(脉冲数)，内部限�
 void Stepper_Update();                   // 兼容旧接口（定时器模式为空操作）
 bool Stepper_AtTarget();                 // 是否已到位
 
+int32_t Stepper_GetTarget();
+
 #endif

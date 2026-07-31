@@ -4,6 +4,7 @@
 #include "k230.h"
 #include "stepper.h"
 #include "ball.h"
+#include "web.h"
 
 volatile uint8_t  g_stop     = 1;
 volatile uint8_t  g_timerRun = 0;
@@ -12,6 +13,8 @@ volatile uint16_t g_runMs    = 0;
 unsigned long     _t0       = 0;
 volatile int16_t  g_ballX   = K230_LOST;
 volatile uint8_t  g_ampCmd  = 0;
+volatile uint8_t  g_webCmd  = 0;
+volatile uint8_t  g_lastCmd = 0;
 
 TaskHandle_t thTi    = NULL;
 TaskHandle_t thK230  = NULL;
@@ -23,11 +26,12 @@ void taskTi(void *pv) {
     while (1) {
         uint8_t cmd = 0;
 
-        if (Serial2.available()) {
+        if (g_webCmd) {
+            cmd = g_webCmd;
+            g_webCmd = 0;
+        } else if (Serial2.available()) {
             cmd = (uint8_t)Serial2.read();
-        }
-
-        if (Serial.available()) {
+        } else if (Serial.available()) {
             uint8_t c = (uint8_t)Serial.read();
             if (c == '1')      cmd = 0x01;
             else if (c == '2') cmd = 0x02;
@@ -41,20 +45,31 @@ void taskTi(void *pv) {
             _t0 = millis();
             g_timerRun = 1;
             g_stop = 1;
-            Serial.println("[TI] LINE START");
+            Web_Logf("[TI] LINE START");
         } else if (cmd == 0x04) {
             g_stop = 0;
             g_ballCmd = 1;
-            Serial.println("[TI] BALL START (Q3)");
+            Web_Logf("[TI] BALL START (Q3)");
+        } else if (cmd == 0x05) {
+            _t0 = millis();
+            g_timerRun = 1;
+            g_stop = 0;
+            g_ballCmd = 2;
+            Web_Logf("[TI] Q4 START");
+        } else if (cmd == 0x06) {
+            g_stop = 1;
+            g_timerRun = 0;
+            Web_Logf("[TI] Q4 DONE (dist) t=%ums", (unsigned)(millis() - _t0));
         } else if (cmd == 0x02) {
             g_stop = 1;
             g_timerRun = 0;
-            Serial.println("[TI] LINE DONE");
+            Web_Logf("[TI] LINE DONE");
         } else if (cmd == 0x03) {
             g_stop = 1;
             g_timerRun = 0;
-            Serial.println("[TI] STOP");
+            Web_Logf("[TI] STOP");
         }
+        if (cmd) g_lastCmd = cmd;
         if (g_timerRun) {
             g_runMs = (uint16_t)(millis() - _t0);
         }
@@ -185,15 +200,17 @@ void taskBall(void *pv) {
     Ball_Init();
     uint8_t lastStop = 1;
 #if BALL_AUTO_START
-    Serial.println("[BALL] auto start in 5s");
+    Web_Logf("[BALL] auto start in 5s");
     vTaskDelay(pdMS_TO_TICKS(5000));
     Ball_Start();
 #endif
     while (1) {
         if (g_ballCmd) {
+            uint8_t bc = g_ballCmd;
             g_ballCmd = 0;
             lastStop = g_stop;
-            Ball_Start();
+            if (bc == 1) Ball_Start();
+            else if (bc == 2) Ball_StartQ4();
         }
 
         if (g_stop != lastStop) {
@@ -226,6 +243,7 @@ void setup() {
     Uart_Init();
     Stepper_Init();
     Oled_Init();
+    Web_Init();
 
     _t0 = 0;
     g_stop = 1;
@@ -235,7 +253,7 @@ void setup() {
     xTaskCreatePinnedToCore(taskBall, "Ball", 4096, NULL, 2, &thBall, 1);
     xTaskCreatePinnedToCore(taskOled, "Oled", 2048, NULL, 1, &thOled, 1);
 
-    Serial.println("[SYS] All tasks started");
+    Web_Logf("[SYS] All tasks started");
     vTaskDelete(NULL);
 }
 

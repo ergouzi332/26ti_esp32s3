@@ -1,23 +1,25 @@
 #include "stepper.h"
 #include <Arduino.h>
 #include "esp32-hal-timer.h"
+#include "web.h"
+
 
 // ====================================================================
-// ç¡¬ä»¶å®šæ—¶å™¨è„‰å†²å‘ç”Ÿå™¨
+// Ó²¼ş¶¨Ê±Æ÷Âö³å·¢ÉúÆ÷
 // --------------------------------------------------------------------
-// ä¹‹å‰ç”¨ä»»åŠ¡å¾ªç¯æ¯ 20ms åªå‘ 2 ä¸ªè„‰å†²(â‰ˆ100pps)ï¼Œç”µæœºå‡ ä¹è½¬ä¸åŠ¨ã€‚
-// ç°åœ¨ç”±ç¡¬ä»¶å®šæ—¶å™¨ ISR ä»¥ STEP_HZ é¢‘ç‡è‡ªåŠ¨å‘è„‰å†²ï¼Œç›´åˆ°åˆ°è¾¾ç›®æ ‡ä½ç½®ã€‚
-// é©±åŠ¨æ¿(ZDT X42S)å†…éƒ¨è‡ªå¸¦ç¼–ç å™¨é—­ç¯ï¼Œè§’åº¦ç²¾ç¡®ã€ä¸ä¸¢æ­¥ã€èƒ½é”è½´ï¼Œ
-// ESP32 åªéœ€æŠŠå®ƒå½“"è§’åº¦ä¼ºæœ"ç”¨ï¼šç»™ç›®æ ‡è„‰å†²æ•°å³å¯ï¼Œæ— éœ€è¯»ç¼–ç å™¨ã€‚
+// Ö®Ç°ÓÃÈÎÎñÑ­»·Ã¿ 20ms Ö»·¢ 2 ¸öÂö³å(¡Ö100pps)£¬µç»ú¼¸ºõ×ª²»¶¯¡£
+// ÏÖÔÚÓÉÓ²¼ş¶¨Ê±Æ÷ ISR ÒÔ STEP_HZ ÆµÂÊ×Ô¶¯·¢Âö³å£¬Ö±µ½µ½´ïÄ¿±êÎ»ÖÃ¡£
+// Çı¶¯°å(ZDT X42S)ÄÚ²¿×Ô´ø±àÂëÆ÷±Õ»·£¬½Ç¶È¾«È·¡¢²»¶ª²½¡¢ÄÜËøÖá£¬
+// ESP32 Ö»Ğè°ÑËüµ±"½Ç¶ÈËÅ·ş"ÓÃ£º¸øÄ¿±êÂö³åÊı¼´¿É£¬ÎŞĞè¶Á±àÂëÆ÷¡£
 // ====================================================================
 
 static hw_timer_t *s_timer = NULL;
 
-static volatile int32_t s_steps  = 0;    // å½“å‰è„‰å†²æ•°ï¼ˆå¸¦æ–¹å‘ï¼‰
-static volatile int32_t s_target = 0;    // ç›®æ ‡è„‰å†²æ•°
-static volatile bool    s_en     = false; // ä½¿èƒ½æ ‡å¿—ï¼ˆåŒæ—¶æ§åˆ¶ EN å¼•è„šï¼‰
+static volatile int32_t s_steps  = 0;    // µ±Ç°Âö³åÊı£¨´ø·½Ïò£©
+static volatile int32_t s_target = 0;    // Ä¿±êÂö³åÊı
+static volatile bool    s_en     = false; // Ê¹ÄÜ±êÖ¾£¨Í¬Ê±¿ØÖÆ EN Òı½Å£©
 
-// ç›´å†™ GPIO å¯„å­˜å™¨ï¼šæ¯” digitalWrite å¿«ä¸” ISR å†…å®‰å…¨ï¼ˆä»…é€‚ç”¨ GPIO0-31ï¼‰
+// Ö±Ğ´ GPIO ¼Ä´æÆ÷£º±È digitalWrite ¿ìÇÒ ISR ÄÚ°²È«£¨½öÊÊÓÃ GPIO0-31£©
 #define GPIO_BIT(pin)  (1u << (pin))
 static inline void pin_high(uint8_t pin) { GPIO.out_w1ts = GPIO_BIT(pin); }
 static inline void pin_low (uint8_t pin) { GPIO.out_w1tc = GPIO_BIT(pin); }
@@ -29,12 +31,12 @@ void IRAM_ATTR Stepper_TimerISR() {
     int32_t tgt = s_target;
     if (cur == tgt) return;
 
-    // å…ˆå®šæ–¹å‘å†å‘è„‰å†²
+    // ÏÈ¶¨·½ÏòÔÙ·¢Âö³å
     if (tgt > cur) { pin_high(PIN_DIR); s_steps = cur + 1; }
     else           { pin_low (PIN_DIR); s_steps = cur - 1; }
 
     pin_high(PIN_STP);
-    delayMicroseconds(10);      // è„‰å†²é«˜ç”µå¹³å®½åº¦(é©±åŠ¨æ¿è¦æ±‚ >2.5us)
+    delayMicroseconds(10);      // Âö³å¸ßµçÆ½¿í¶È(Çı¶¯°åÒªÇó >2.5us)
     pin_low (PIN_STP);
 }
 
@@ -46,27 +48,31 @@ void Stepper_Init() {
 
     pin_low(PIN_STP);
     pin_low(PIN_DIR);
-    digitalWrite(PIN_EN, HIGH);    // é»˜è®¤å¤±èƒ½ï¼ˆä½ç”µå¹³ä½¿èƒ½ï¼‰
-    digitalWrite(PIN_COM, HIGH);   // å…¬å…±ç«¯ç”µå¹³æŒ‰å®é™…æ¥çº¿ç¡®å®š
+    digitalWrite(PIN_EN, HIGH);    // Ä¬ÈÏÊ§ÄÜ£¨µÍµçÆ½Ê¹ÄÜ£©
+    digitalWrite(PIN_COM, HIGH);   // ¹«¹²¶ËµçÆ½°´Êµ¼Ê½ÓÏßÈ·¶¨
 
     s_steps  = 0;
     s_target = 0;
     s_en     = false;
 
-    // å®šæ—¶å™¨ï¼š80MHz / 80 = 1MHz è®¡æ•°ï¼Œæ¯ 1e6/STEP_HZ å¾®ç§’ä¸€æ¬¡ä¸­æ–­
+    // ¶¨Ê±Æ÷£º80MHz / 80 = 1MHz ¼ÆÊı£¬Ã¿ 1e6/STEP_HZ Î¢ÃëÒ»´ÎÖĞ¶Ï
     s_timer = timerBegin(0, 80, true);
     timerAttachInterrupt(s_timer, &Stepper_TimerISR, true);
     timerAlarmWrite(s_timer, 1000000UL / STEP_HZ, true);
     timerAlarmEnable(s_timer);
     timerStart(s_timer);
 
-    Serial.printf("[STEPPER] Init OK: %d pps, STP=%d DIR=%d EN=%d\n",
+    Web_Logf("[STEPPER] Init OK: %d pps, STP=%d DIR=%d EN=%d\n",
                   (int)STEP_HZ, PIN_STP, PIN_DIR, PIN_EN);
 }
 
 void Stepper_Enable(bool en) {
     s_en = en;
-    digitalWrite(PIN_EN, en ? LOW : HIGH);   // ä½ç”µå¹³ä½¿èƒ½
+    digitalWrite(PIN_EN, en ? LOW : HIGH);   // µÍµçÆ½Ê¹ÄÜ
+}
+
+int32_t Stepper_GetTarget() {
+    return (int32_t)s_target;
 }
 
 int32_t Stepper_GetSteps() {
@@ -80,7 +86,7 @@ void Stepper_SetTarget(int32_t t) {
 }
 
 void Stepper_Update() {
-    // ç¡¬ä»¶å®šæ—¶å™¨æ¨¡å¼æ— éœ€è½®è¯¢ï¼Œä¿ç•™ç©ºå‡½æ•°å…¼å®¹æ—§è°ƒç”¨
+    // Ó²¼ş¶¨Ê±Æ÷Ä£Ê½ÎŞĞèÂÖÑ¯£¬±£Áô¿Õº¯Êı¼æÈİ¾Éµ÷ÓÃ
 }
 
 bool Stepper_AtTarget() {

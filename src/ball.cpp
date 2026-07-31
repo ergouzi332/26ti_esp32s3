@@ -1,16 +1,23 @@
 #include "ball.h"
 #include "k230.h"
 #include "stepper.h"
+#include "web.h"
+
 #include <Arduino.h>
 
 #define PID_KP        1.9f
 #define PID_KD        140.0f
 #define PID_KI        0.15f
+
+#define Q4_KP         1.0f
+#define Q4_KD         80.0f
+#define Q4_KI         0.05f
+#define Q4_OUT_MAX    1500
 #define INTEGRAL_MAX 1500.0f
 #define BALL_FILTER   0.5f
 #define DIR_SIGN      1.0f
 
-#define ARRIVE_TOL_X   22
+#define ARRIVE_TOL_X   36
 #define ARRIVE_HOLD_MS 80
 #define OUT_MAX       1000
 #define SLW_MAX       120.0f
@@ -29,6 +36,11 @@ static uint32_t s_startT    = 0;
 static bool     s_freshD    = true;
 static uint32_t s_lostT0    = 0;
 static float    s_lastOut   = 0.0f;
+static bool     s_holdLock  = false; // ph3: ???????
+static uint32_t s_holdT0    = 0;     // ph3: ????
+static uint32_t s_doneT     = 0;     // ph3: DONE ??
+static int32_t  s_holdSteps = 0;     // ph3: ??????(????)
+
 
 void Ball_Init() {
     s_phase = 0;
@@ -42,6 +54,10 @@ void Ball_Init() {
     s_freshD = true;
     s_lostT0 = 0;
     s_lastOut = 0;
+    s_holdLock = false;
+    s_holdT0 = 0;
+    s_doneT = 0;
+    s_holdSteps = 0;
     Stepper_SetTarget(0);
 }
 
@@ -56,12 +72,37 @@ void Ball_Start() {
     s_freshD = true;
     s_lostT0 = 0;
     s_lastOut = 0;
+    s_holdLock = false;
+    s_holdT0 = 0;
+    s_doneT = 0;
+    s_holdSteps = 0;
     s_startT = millis();
 
     Stepper_Enable(true);
     Stepper_SetTarget(0);
-    Serial.printf("[BALL] Start: O -> +5cm(%.1fcm), EN=%d\n",
+    Web_Logf("[BALL] Start: O -> +5cm(%.1fcm), EN=%d\n",
                   X_CM(X_PLUS5), 1);
+}
+
+void Ball_StartQ4() {
+    s_phase = 4;
+    s_targetX = X_CENTER;
+    s_ballF = 0;
+    s_ballValid = false;
+    s_int = 0;
+    s_lastErr = 0;
+    s_arrived = false;
+    s_freshD = true;
+    s_lostT0 = 0;
+    s_lastOut = 0;
+    s_holdLock = false;
+    s_holdT0 = 0;
+    s_doneT = 0;
+    s_holdSteps = 0;
+
+    Stepper_Enable(true);
+    Stepper_SetTarget(0);
+    Web_Logf("[BALL] Q4 hold center");
 }
 
 void Ball_Stop() {
@@ -76,10 +117,17 @@ void Ball_Update(int16_t ballX) {
     if (millis() - s_dbgT >= 200) { s_dbgT = millis(); dbg = true; }
 #endif
 
-    if (s_phase == 0 || s_phase == 3) {
+    if (s_phase == 0) {
 #if BALL_DEBUG
         if (dbg) Serial.printf("[BALL] ph=%d X=%d(%.1fcm) idle\n",
                                s_phase, ballX, X_CM(ballX));
+#endif
+        return;
+    }
+    if (s_phase == 3 && s_holdLock) {
+#if BALL_DEBUG
+        if (dbg) Serial.printf("[BALL] ph=3 LOCK X=%d(%.1fcm) pos=%d\n",
+                               ballX, X_CM(ballX), (int)Stepper_GetSteps());
 #endif
         return;
     }
@@ -95,7 +143,7 @@ void Ball_Update(int16_t ballX) {
             s_arriveT0 = millis();
         } else if (!nearTarget &&
                    millis() - s_lostT0 >= BALL_LOST_LEVEL_MS) {
-            Stepper_SetTarget(0);
+            if (s_phase != 4 && s_phase != 3) Stepper_SetTarget(0);
         }
         s_freshD = true;
     } else {
@@ -130,22 +178,29 @@ void Ball_Update(int16_t ballX) {
                 s_lastErr = 0;
                 s_arrived = false;
                 s_freshD = true;
-                Serial.printf("[BALL] +5cm OK @%ums -> go -5cm\n",
+                Web_Logf("[BALL] +5cm OK @%ums -> go -5cm\n",
                               (unsigned)(millis() - s_startT));
             } else if (s_phase == 2) {
                 s_phase = 3;
-                Serial.printf("[BALL] DONE @%ums, stable at -5cm\n",
+                s_doneT = millis();
+                Web_Logf("[BALL] DONE @%ums, stable at -5cm\n",
                               (unsigned)(millis() - s_startT));
-                Stepper_SetTarget(0);
             }
         }
     } else {
         s_arrived = false;
     }
 
+    if (s_phase == 2 && (millis() - s_startT) >= 4500) {
+        s_phase = 3;
+        s_doneT = millis();
+        Web_Logf("[BALL] DONE @%ums (timeout)", (unsigned)(millis() - s_startT));
+    }
+
     float err = 0.0f, out = 0.0f;
     if (!lost) {
         err = (float)(s_targetX) - xf;
+        if (s_phase == 4 && fabsf(err) < 40.0f) err = 0.0f;
         if (fabsf(err) < 220.0f) s_int += err;
         else s_int *= 0.9f;
         if (s_int >  INTEGRAL_MAX) s_int =  INTEGRAL_MAX;
@@ -155,13 +210,18 @@ void Ball_Update(int16_t ballX) {
         if (derr >  DERIV_MAX) derr =  DERIV_MAX;
         if (derr < -DERIV_MAX) derr = -DERIV_MAX;
 
-        out = DIR_SIGN * (PID_KP * err + PID_KD * derr + PID_KI * s_int);
+        float kp = (s_phase == 4) ? Q4_KP : PID_KP;
+        float kd = (s_phase == 4) ? Q4_KD : PID_KD;
+        float ki = (s_phase == 4) ? Q4_KI : PID_KI;
+        out = DIR_SIGN * (kp * err + kd * derr + ki * s_int);
+        if (s_phase == 3) s_holdSteps = (int32_t)(DIR_SIGN * (kp * err + ki * s_int));
         s_lastErr = err;
 
         if (out >  s_lastOut + SLW_MAX) out = s_lastOut + SLW_MAX;
         if (out <  s_lastOut - SLW_MAX) out = s_lastOut - SLW_MAX;
-        if (out >  OUT_MAX) out =  OUT_MAX;
-        if (out < -OUT_MAX) out = -OUT_MAX;
+        float omax = (s_phase == 4) ? Q4_OUT_MAX : OUT_MAX;
+        if (out >  omax) out =  omax;
+        if (out < -omax) out = -omax;
         s_lastOut = out;
 
 #if !BALL_NO_MOTOR
@@ -169,19 +229,42 @@ void Ball_Update(int16_t ballX) {
 #endif
     }
 
+    if (s_phase == 3 && !s_holdLock) {
+        bool inBand = !lost && (fabsf(err) <= 35.0f);
+        if (inBand) {
+            if (s_holdT0 == 0) s_holdT0 = millis();
+            if (millis() - s_holdT0 >= 1500) {
+                s_holdLock = true;
+                Stepper_SetTarget(s_holdSteps);
+                Web_Logf("[BALL] HOLD locked @ -5cm, motor still");
+            }
+        } else {
+            s_holdT0 = 0;
+        }
+        if (millis() - s_doneT >= 3000) {
+            s_holdLock = true;
+            Stepper_SetTarget(s_holdSteps);
+            Web_Logf("[BALL] HOLD locked (force), motor still");
+        }
+    }
+
 #if BALL_DEBUG
     if (dbg) {
         if (lost) {
-            Serial.printf("[BALL] ph=%d X=LOST%s\n", s_phase,
+            Web_Logf("[BALL] ph=%d X=LOST%s\n", s_phase,
                           s_arrived ? " (arrived-grace)" : " hold");
         } else {
-            Serial.printf("[BALL] ph=%d X=%d(%.1fcm) T=%d(%.1fcm) err=%+.1f out=%+.0f pos=%d\n",
+            Web_Logf("[BALL] ph=%d X=%d(%.1fcm) T=%d(%.1fcm) err=%+.1f out=%+.0f pos=%d\n",
                           s_phase, ballX, X_CM(ballX),
                           s_targetX, X_CM(s_targetX), err, out,
                           (int)Stepper_GetSteps());
         }
     }
 #endif
+}
+
+uint8_t Ball_GetPhase() {
+    return s_phase;
 }
 
 bool Ball_IsDone() {
