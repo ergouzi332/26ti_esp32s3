@@ -9,7 +9,7 @@
 
 static U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
 
-extern volatile uint8_t  g_stop;
+extern volatile uint8_t  g_timerRun;
 extern volatile uint16_t g_runMs;
 extern volatile int16_t  g_ballX;
 
@@ -39,7 +39,7 @@ void Oled_Update() {
     u8g2.drawStr(0, 10, buf);
 
     // ?1???: STOP/RUN
-    snprintf(buf, sizeof(buf), "%s", g_stop ? "STOP" : "RUN");
+    snprintf(buf, sizeof(buf), "%s", g_timerRun ? "RUN" : "STOP");
     u8g2.drawStr(80, 10, buf);
 
     // ????: ????

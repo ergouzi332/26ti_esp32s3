@@ -5,8 +5,10 @@
 #include "stepper.h"
 #include "ball.h"
 
-volatile uint8_t  g_stop    = 1;
-volatile uint16_t g_runMs   = 0;
+volatile uint8_t  g_stop     = 1;
+volatile uint8_t  g_timerRun = 0;
+volatile uint8_t  g_ballCmd  = 0;
+volatile uint16_t g_runMs    = 0;
 unsigned long     _t0       = 0;
 volatile int16_t  g_ballX   = K230_LOST;
 volatile uint8_t  g_ampCmd  = 0;
@@ -29,6 +31,7 @@ void taskTi(void *pv) {
             uint8_t c = (uint8_t)Serial.read();
             if (c == '1')      cmd = 0x01;
             else if (c == '2') cmd = 0x02;
+            else if (c == '4') cmd = 0x04;
 #if STEPPER_TEST_MODE
             else if (c >= '3' && c <= '8') g_ampCmd = c;
 #endif
@@ -36,13 +39,23 @@ void taskTi(void *pv) {
 
         if (cmd == 0x01) {
             _t0 = millis();
-            g_stop = 0;
-            Serial.println("[TI] START");
-        } else if (cmd == 0x02 || cmd == 0x03) {
+            g_timerRun = 1;
             g_stop = 1;
+            Serial.println("[TI] LINE START");
+        } else if (cmd == 0x04) {
+            g_stop = 0;
+            g_ballCmd = 1;
+            Serial.println("[TI] BALL START (Q3)");
+        } else if (cmd == 0x02) {
+            g_stop = 1;
+            g_timerRun = 0;
+            Serial.println("[TI] LINE DONE");
+        } else if (cmd == 0x03) {
+            g_stop = 1;
+            g_timerRun = 0;
             Serial.println("[TI] STOP");
         }
-        if (!g_stop) {
+        if (g_timerRun) {
             g_runMs = (uint16_t)(millis() - _t0);
         }
         vTaskDelayUntil(&last, pdMS_TO_TICKS(10));
@@ -177,6 +190,11 @@ void taskBall(void *pv) {
     Ball_Start();
 #endif
     while (1) {
+        if (g_ballCmd) {
+            g_ballCmd = 0;
+            lastStop = g_stop;
+            Ball_Start();
+        }
 
         if (g_stop != lastStop) {
             lastStop = g_stop;

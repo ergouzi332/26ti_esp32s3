@@ -27,7 +27,7 @@
 #define STEPPER_TEST_MODE 0
 #define BALL_DEBUG       1
 #define BALL_NO_MOTOR    0
-#define BALL_AUTO_START  1
+#define BALL_AUTO_START  0
 
 void Ball_Init();
 void Ball_Start();               // 第三问：O -> +5cm -> -5cm

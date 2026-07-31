@@ -3,7 +3,7 @@
 #include "stepper.h"
 #include <Arduino.h>
 
-#define PID_KP        1.8f
+#define PID_KP        1.9f
 #define PID_KD        140.0f
 #define PID_KI        0.15f
 #define INTEGRAL_MAX 1500.0f
@@ -11,9 +11,9 @@
 #define DIR_SIGN      1.0f
 
 #define ARRIVE_TOL_X   22
-#define ARRIVE_HOLD_MS 100
-#define OUT_MAX       800
-#define SLW_MAX       80.0f
+#define ARRIVE_HOLD_MS 80
+#define OUT_MAX       1000
+#define SLW_MAX       120.0f
 #define DERIV_MAX     3000.0f
 #define BALL_LOST_LEVEL_MS 600
 
@@ -88,7 +88,13 @@ void Ball_Update(int16_t ballX) {
     if (lost) {
         if (s_lostT0 == 0) s_lostT0 = millis();
 
-        if (millis() - s_lostT0 >= BALL_LOST_LEVEL_MS) {
+        bool nearTarget = s_ballValid &&
+                          (fabsf(s_ballF - s_targetX) <= 60.0f);
+        if (nearTarget && !s_arrived) {
+            s_arrived = true;
+            s_arriveT0 = millis();
+        } else if (!nearTarget &&
+                   millis() - s_lostT0 >= BALL_LOST_LEVEL_MS) {
             Stepper_SetTarget(0);
         }
         s_freshD = true;
@@ -110,7 +116,7 @@ void Ball_Update(int16_t ballX) {
         }
     }
 
-    bool inTol = !lost && (fabsf((float)ballX - s_targetX) <= ARRIVE_TOL_X);
+    bool inTol = !lost && (fabsf(xf - s_targetX) <= ARRIVE_TOL_X);
     bool grace = lost && s_arrived;
     if (inTol || grace) {
         if (!s_arrived) {
