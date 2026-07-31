@@ -1,4 +1,4 @@
-﻿#ifndef _OLED_H_
+#ifndef _OLED_H_
 #define _OLED_H_
 
 void Oled_Init();

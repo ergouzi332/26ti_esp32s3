@@ -1,4 +1,5 @@
-﻿#include "oled.h"
+#include "oled.h"
+#include "k230.h"
 #include <U8g2lib.h>
 #include <Wire.h>
 #include <stdio.h>
@@ -8,12 +9,9 @@
 
 static U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
 
-extern volatile int16_t  g_er;
-extern volatile uint8_t  g_gray;
-extern volatile bool     g_lost;
-extern volatile bool     g_allBlack;
 extern volatile uint8_t  g_stop;
 extern volatile uint16_t g_runMs;
+extern volatile int16_t  g_ballX;
 
 void Oled_Init() {
     Wire.begin(PIN_OLED_SDA, PIN_OLED_SCL);
@@ -21,7 +19,7 @@ void Oled_Init() {
     u8g2.clearBuffer();
     u8g2.setFont(u8g2_font_6x10_tf);
     u8g2.drawStr(30, 20, "26TI ESP32");
-    u8g2.drawStr(20, 40, "H-Car Ball");
+    u8g2.drawStr(20, 40, "Ball Balance");
     u8g2.sendBuffer();
     delay(500);
 }
@@ -30,18 +28,21 @@ void Oled_Update() {
     char buf[24];
     u8g2.clearBuffer();
 
-    // 第1行(黄色区域): ER + 状态
     u8g2.setFont(u8g2_font_6x10_tf);
-    if (g_lost) {
-        snprintf(buf, sizeof(buf), "ER:--  LOST");
-    } else if (g_allBlack) {
-        snprintf(buf, sizeof(buf), "ER:--  TURN");
+
+    // ?1?: Ball X?? / LOST
+    if (g_ballX == K230_LOST) {
+        snprintf(buf, sizeof(buf), "Ball: LOST");
     } else {
-        snprintf(buf, sizeof(buf), "ER:%+3d", g_er);
+        snprintf(buf, sizeof(buf), "Ball: %4d", g_ballX);
     }
     u8g2.drawStr(0, 10, buf);
 
-    // 中央大字体时间
+    // ?1???: STOP/RUN
+    snprintf(buf, sizeof(buf), "%s", g_stop ? "STOP" : "RUN");
+    u8g2.drawStr(80, 10, buf);
+
+    // ????: ????
     u8g2.setFont(u8g2_font_fub20_tf);
     uint16_t t = g_runMs;
     uint16_t sec = t / 1000;
