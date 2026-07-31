@@ -17,8 +17,8 @@
 #define Q4_OUT_MAX    1000
 #define Q4_SLW        70.0f
 #define INTEGRAL_MAX 1500.0f
-#define Q4_INT_MAX   1000.0f
-#define Q4_BIAS       150.0f
+#define Q4_INT_MAX   1600.0f
+#define Q4_BIAS       120.0f
 #define Q4_BIAS_MS    3200
 #define Q4_BIAS_PEAK_MS 1000
 #define Q4_BIAS_HOLD  450
