@@ -60,6 +60,9 @@ void taskTi(void *pv) {
             g_stop = 1;
             g_timerRun = 0;
             Web_Logf("[TI] Q4 DONE (dist) t=%ums", (unsigned)(millis() - _t0));
+        } else if (cmd == 0x07) {
+            g_timerRun = 0;
+            Web_Logf("[TI] Q4 B PASS t=%ums", (unsigned)(millis() - _t0));
         } else if (cmd == 0x02) {
             g_stop = 1;
             g_timerRun = 0;
