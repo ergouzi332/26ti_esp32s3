@@ -1,4 +1,4 @@
-#include <Arduino.h>
+﻿#include <Arduino.h>
 #include "oled.h"
 #include "uart.h"
 #include "k230.h"
@@ -23,6 +23,8 @@ TaskHandle_t thOled  = NULL;
 
 void taskTi(void *pv) {
     TickType_t last = xTaskGetTickCount();
+    char txtBuf[48];
+    uint8_t txtLen = 0;
     while (1) {
         uint8_t cmd = 0;
 
@@ -30,7 +32,14 @@ void taskTi(void *pv) {
             cmd = g_webCmd;
             g_webCmd = 0;
         } else if (Serial2.available()) {
-            cmd = (uint8_t)Serial2.read();
+            uint8_t c = (uint8_t)Serial2.read();
+            if (c == 0x01 || c == 0x02 || c == 0x03 || c == 0x04 || c == 0x05 || c == 0x06 || c == 0x07) {
+                cmd = c;
+            } else if (c == '\r' || c == '\n') {
+                if (txtLen) { txtBuf[txtLen] = 0; Web_Logf("[TI] %s", txtBuf); txtLen = 0; }
+            } else if (txtLen < sizeof(txtBuf) - 1) {
+                txtBuf[txtLen++] = (char)c;
+            }
         } else if (Serial.available()) {
             uint8_t c = (uint8_t)Serial.read();
             if (c == '1')      cmd = 0x01;
@@ -41,6 +50,11 @@ void taskTi(void *pv) {
 #endif
         }
 
+        if (cmd && txtLen) {
+            txtBuf[txtLen] = 0;
+            Web_Logf("[TI] %s", txtBuf);
+            txtLen = 0;
+        }
         if (cmd == 0x01) {
             _t0 = millis();
             g_timerRun = 1;
@@ -261,3 +275,4 @@ void setup() {
 }
 
 void loop() {}
+

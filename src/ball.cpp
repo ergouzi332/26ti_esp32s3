@@ -11,16 +11,16 @@
 #define PID_KD2_END   200.0f
 #define PID_KI        0.15f
 
-#define Q4_KP         1.3f
+#define Q4_KP         1.5f
 #define Q4_KD         55.0f
-#define Q4_KI         0.10f
+#define Q4_KI         0.12f
 #define Q4_OUT_MAX    1000
 #define Q4_SLW        70.0f
 #define INTEGRAL_MAX 1500.0f
 #define Q4_INT_MAX   1600.0f
 #define Q4_BIAS       120.0f
 #define Q4_BIAS_MS    3200
-#define Q4_BIAS_PEAK_MS 1000
+#define Q4_BIAS_PEAK_MS 1300
 #define Q4_BIAS_HOLD  450
 #define BALL_FILTER   0.5f
 #define DIR_SIGN      1.0f
