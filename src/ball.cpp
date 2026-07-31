@@ -18,9 +18,9 @@
 #define Q4_SLW        70.0f
 #define INTEGRAL_MAX 1500.0f
 #define Q4_INT_MAX   1000.0f
-#define Q4_BIAS       140.0f
-#define Q4_BIAS_MS    2200
-#define Q4_BIAS_PEAK_MS 700
+#define Q4_BIAS       150.0f
+#define Q4_BIAS_MS    3200
+#define Q4_BIAS_PEAK_MS 1000
 #define Q4_BIAS_HOLD  450
 #define BALL_FILTER   0.5f
 #define DIR_SIGN      1.0f
@@ -49,6 +49,7 @@ static uint32_t s_holdT0    = 0;     // ph3: ????
 static uint32_t s_doneT     = 0;     // ph3: DONE ??
 static uint32_t s_phase2T   = 0;     // ph2: entry time
 static int32_t  s_q4Home    = 0;     // ph4: center-hold steps
+static bool     s_q4BiasDone= false;   // ph4: bias-window flag
 static uint32_t s_q4T0      = 0;     // ph4: start time
 
 
@@ -111,6 +112,7 @@ void Ball_StartQ4() {
     s_phase2T = 0;
     s_q4Home = Stepper_GetSteps();
     s_q4T0 = millis();
+    s_q4BiasDone = false;
 
     Stepper_Enable(true);
     Stepper_SetTarget(Stepper_GetSteps());
@@ -227,7 +229,10 @@ void Ball_Update(int16_t ballX) {
         err = (float)(s_targetX) - xf;
         if (s_phase == 4) {
             uint32_t el = millis() - s_q4T0;
-            if (el >= Q4_BIAS_MS && fabsf(err) < 10.0f) { err = 0.0f; s_q4Home = (int32_t)s_lastOut; }
+            if (el >= Q4_BIAS_MS) {
+                if (!s_q4BiasDone) { s_q4BiasDone = true; s_int = 0.0f; }
+                if (fabsf(err) < 10.0f) { err = 0.0f; s_q4Home = (int32_t)s_lastOut; }
+            }
             if (el < Q4_BIAS_PEAK_MS) err += Q4_BIAS;
             else if (el < Q4_BIAS_MS) err += Q4_BIAS * (1.0f - (float)(el - Q4_BIAS_PEAK_MS) / (float)(Q4_BIAS_MS - Q4_BIAS_PEAK_MS));
         }
