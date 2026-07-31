@@ -7,6 +7,8 @@
 
 #define PID_KP        1.9f
 #define PID_KD        140.0f
+#define PID_KD2       100.0f
+#define PID_KD2_END   200.0f
 #define PID_KI        0.15f
 
 #define Q4_KP         1.0f
@@ -39,7 +41,7 @@ static float    s_lastOut   = 0.0f;
 static bool     s_holdLock  = false; // ph3: ???????
 static uint32_t s_holdT0    = 0;     // ph3: ????
 static uint32_t s_doneT     = 0;     // ph3: DONE ??
-static int32_t  s_holdSteps = 0;     // ph3: ??????(????)
+static uint32_t s_phase2T   = 0;     // ph2: entry time
 
 
 void Ball_Init() {
@@ -57,7 +59,7 @@ void Ball_Init() {
     s_holdLock = false;
     s_holdT0 = 0;
     s_doneT = 0;
-    s_holdSteps = 0;
+    s_phase2T = 0;
     Stepper_SetTarget(0);
 }
 
@@ -75,7 +77,7 @@ void Ball_Start() {
     s_holdLock = false;
     s_holdT0 = 0;
     s_doneT = 0;
-    s_holdSteps = 0;
+    s_phase2T = 0;
     s_startT = millis();
 
     Stepper_Enable(true);
@@ -98,7 +100,7 @@ void Ball_StartQ4() {
     s_holdLock = false;
     s_holdT0 = 0;
     s_doneT = 0;
-    s_holdSteps = 0;
+    s_phase2T = 0;
 
     Stepper_Enable(true);
     Stepper_SetTarget(0);
@@ -178,11 +180,13 @@ void Ball_Update(int16_t ballX) {
                 s_lastErr = 0;
                 s_arrived = false;
                 s_freshD = true;
+                s_phase2T = millis();
                 Web_Logf("[BALL] +5cm OK @%ums -> go -5cm\n",
                               (unsigned)(millis() - s_startT));
             } else if (s_phase == 2) {
                 s_phase = 3;
                 s_doneT = millis();
+                s_int = 0;
                 Web_Logf("[BALL] DONE @%ums, stable at -5cm\n",
                               (unsigned)(millis() - s_startT));
             }
@@ -191,9 +195,10 @@ void Ball_Update(int16_t ballX) {
         s_arrived = false;
     }
 
-    if (s_phase == 2 && (millis() - s_startT) >= 4500) {
+    if (s_phase == 2 && (millis() - s_phase2T) >= 3000) {
         s_phase = 3;
         s_doneT = millis();
+        s_int = 0;
         Web_Logf("[BALL] DONE @%ums (timeout)", (unsigned)(millis() - s_startT));
     }
 
@@ -201,8 +206,14 @@ void Ball_Update(int16_t ballX) {
     if (!lost) {
         err = (float)(s_targetX) - xf;
         if (s_phase == 4 && fabsf(err) < 40.0f) err = 0.0f;
-        if (fabsf(err) < 220.0f) s_int += err;
-        else s_int *= 0.9f;
+        if (s_phase == 3) {
+            if (fabsf(err) <= 40.0f) s_int += err;
+            else s_int *= 0.9f;
+        } else if (fabsf(err) < 220.0f) {
+            s_int += err;
+        } else {
+            s_int *= 0.9f;
+        }
         if (s_int >  INTEGRAL_MAX) s_int =  INTEGRAL_MAX;
         if (s_int < -INTEGRAL_MAX) s_int = -INTEGRAL_MAX;
 
@@ -211,10 +222,10 @@ void Ball_Update(int16_t ballX) {
         if (derr < -DERIV_MAX) derr = -DERIV_MAX;
 
         float kp = (s_phase == 4) ? Q4_KP : PID_KP;
-        float kd = (s_phase == 4) ? Q4_KD : PID_KD;
+        float kd = (s_phase == 4) ? Q4_KD
+                 : ((s_phase == 2 && fabsf(err) > PID_KD2_END) ? PID_KD2 : PID_KD);
         float ki = (s_phase == 4) ? Q4_KI : PID_KI;
         out = DIR_SIGN * (kp * err + kd * derr + ki * s_int);
-        if (s_phase == 3) s_holdSteps = (int32_t)(DIR_SIGN * (kp * err + ki * s_int));
         s_lastErr = err;
 
         if (out >  s_lastOut + SLW_MAX) out = s_lastOut + SLW_MAX;
@@ -233,9 +244,9 @@ void Ball_Update(int16_t ballX) {
         bool inBand = !lost && (fabsf(err) <= 35.0f);
         if (inBand) {
             if (s_holdT0 == 0) s_holdT0 = millis();
-            if (millis() - s_holdT0 >= 1500) {
+            if (millis() - s_holdT0 >= 800) {
                 s_holdLock = true;
-                Stepper_SetTarget(s_holdSteps);
+                Stepper_SetTarget((int32_t)s_lastOut);
                 Web_Logf("[BALL] HOLD locked @ -5cm, motor still");
             }
         } else {
@@ -243,7 +254,7 @@ void Ball_Update(int16_t ballX) {
         }
         if (millis() - s_doneT >= 3000) {
             s_holdLock = true;
-            Stepper_SetTarget(s_holdSteps);
+            Stepper_SetTarget((int32_t)s_lastOut);
             Web_Logf("[BALL] HOLD locked (force), motor still");
         }
     }

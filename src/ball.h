@@ -11,9 +11,9 @@
 //   -5cm(7.5cm)   -> X = +151
 // X_CM(x) 把像素换算成 cm（以标定点线性插值）
 // ============================================================
-#define X_CENTER    (-57)
-#define X_PLUS5     (-269)
-#define X_MINUS5    ( 151)
+#define X_CENTER    (-49)
+#define X_PLUS5     (-272)
+#define X_MINUS5    ( 162)
 
 #define X_CM(x)  (((float)(x) - X_CENTER) / ((float)(X_PLUS5 - X_MINUS5) / 10.0f))
 
