@@ -11,11 +11,17 @@
 #define PID_KD2_END   200.0f
 #define PID_KI        0.15f
 
-#define Q4_KP         1.0f
-#define Q4_KD         80.0f
-#define Q4_KI         0.05f
-#define Q4_OUT_MAX    1500
+#define Q4_KP         1.3f
+#define Q4_KD         55.0f
+#define Q4_KI         0.10f
+#define Q4_OUT_MAX    1000
+#define Q4_SLW        70.0f
 #define INTEGRAL_MAX 1500.0f
+#define Q4_INT_MAX   1000.0f
+#define Q4_BIAS       140.0f
+#define Q4_BIAS_MS    2200
+#define Q4_BIAS_PEAK_MS 700
+#define Q4_BIAS_HOLD  450
 #define BALL_FILTER   0.5f
 #define DIR_SIGN      1.0f
 
@@ -42,6 +48,8 @@ static bool     s_holdLock  = false; // ph3: ???????
 static uint32_t s_holdT0    = 0;     // ph3: ????
 static uint32_t s_doneT     = 0;     // ph3: DONE ??
 static uint32_t s_phase2T   = 0;     // ph2: entry time
+static int32_t  s_q4Home    = 0;     // ph4: center-hold steps
+static uint32_t s_q4T0      = 0;     // ph4: start time
 
 
 void Ball_Init() {
@@ -101,9 +109,11 @@ void Ball_StartQ4() {
     s_holdT0 = 0;
     s_doneT = 0;
     s_phase2T = 0;
+    s_q4Home = Stepper_GetSteps();
+    s_q4T0 = millis();
 
     Stepper_Enable(true);
-    Stepper_SetTarget(0);
+    Stepper_SetTarget(Stepper_GetSteps());
     Web_Logf("[BALL] Q4 hold center");
 }
 
@@ -137,6 +147,16 @@ void Ball_Update(int16_t ballX) {
     bool lost = (ballX == K230_LOST);
     if (lost) {
         if (s_lostT0 == 0) s_lostT0 = millis();
+        if (s_phase == 4) {
+            uint32_t el = millis() - s_q4T0;
+            float bf = 0.0f;
+            if (el < Q4_BIAS_PEAK_MS) bf = 1.0f;
+            else if (el < Q4_BIAS_MS) bf = 1.0f - (float)(el - Q4_BIAS_PEAK_MS) / (float)(Q4_BIAS_MS - Q4_BIAS_PEAK_MS);
+            if (bf > 0.0f)
+                Stepper_SetTarget((int32_t)(Q4_BIAS_HOLD * bf));
+            else
+                Stepper_SetTarget(s_q4Home);
+        }
 
         bool nearTarget = s_ballValid &&
                           (fabsf(s_ballF - s_targetX) <= 60.0f);
@@ -205,7 +225,12 @@ void Ball_Update(int16_t ballX) {
     float err = 0.0f, out = 0.0f;
     if (!lost) {
         err = (float)(s_targetX) - xf;
-        if (s_phase == 4 && fabsf(err) < 40.0f) err = 0.0f;
+        if (s_phase == 4) {
+            uint32_t el = millis() - s_q4T0;
+            if (el >= Q4_BIAS_MS && fabsf(err) < 10.0f) { err = 0.0f; s_q4Home = (int32_t)s_lastOut; }
+            if (el < Q4_BIAS_PEAK_MS) err += Q4_BIAS;
+            else if (el < Q4_BIAS_MS) err += Q4_BIAS * (1.0f - (float)(el - Q4_BIAS_PEAK_MS) / (float)(Q4_BIAS_MS - Q4_BIAS_PEAK_MS));
+        }
         if (s_phase == 3) {
             if (fabsf(err) <= 40.0f) s_int += err;
             else s_int *= 0.9f;
@@ -214,8 +239,9 @@ void Ball_Update(int16_t ballX) {
         } else {
             s_int *= 0.9f;
         }
-        if (s_int >  INTEGRAL_MAX) s_int =  INTEGRAL_MAX;
-        if (s_int < -INTEGRAL_MAX) s_int = -INTEGRAL_MAX;
+        float imax = (s_phase == 4) ? Q4_INT_MAX : INTEGRAL_MAX;
+        if (s_int >  imax) s_int =  imax;
+        if (s_int < -imax) s_int = -imax;
 
         float derr = freshD ? 0.0f : (err - s_lastErr);
         if (derr >  DERIV_MAX) derr =  DERIV_MAX;
@@ -228,8 +254,9 @@ void Ball_Update(int16_t ballX) {
         out = DIR_SIGN * (kp * err + kd * derr + ki * s_int);
         s_lastErr = err;
 
-        if (out >  s_lastOut + SLW_MAX) out = s_lastOut + SLW_MAX;
-        if (out <  s_lastOut - SLW_MAX) out = s_lastOut - SLW_MAX;
+        float slw = (s_phase == 4) ? Q4_SLW : SLW_MAX;
+        if (out >  s_lastOut + slw) out = s_lastOut + slw;
+        if (out <  s_lastOut - slw) out = s_lastOut - slw;
         float omax = (s_phase == 4) ? Q4_OUT_MAX : OUT_MAX;
         if (out >  omax) out =  omax;
         if (out < -omax) out = -omax;
