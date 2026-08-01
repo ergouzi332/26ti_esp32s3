@@ -10,6 +10,7 @@
 static U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE);
 
 extern volatile uint8_t  g_timerRun;
+extern volatile uint8_t  g_runMode;
 extern volatile uint16_t g_runMs;
 extern volatile int16_t  g_ballX;
 
@@ -45,6 +46,8 @@ void Oled_Update() {
     // ????: ????
     u8g2.setFont(u8g2_font_fub20_tf);
     uint16_t t = g_runMs;
+    if (!g_timerRun && g_runMode == 2) t = 8000;
+    else if (!g_timerRun && g_runMode == 3) t = 30000;
     uint16_t sec = t / 1000;
     uint16_t tenth = (t / 100) % 10;
     snprintf(buf, sizeof(buf), "%u.%01u", sec, tenth);

@@ -8,6 +8,7 @@
 
 volatile uint8_t  g_stop     = 1;
 volatile uint8_t  g_timerRun = 0;
+volatile uint8_t  g_runMode  = 0;
 volatile uint8_t  g_ballCmd  = 0;
 volatile uint8_t  g_ballLaunch = 0;
 volatile uint16_t g_runMs    = 0;
@@ -62,15 +63,18 @@ void taskTi(void *pv) {
         if (cmd == 0x01) {
             _t0 = millis();
             g_timerRun = 1;
+            g_runMode = 1;
             g_stop = 1;
             Web_Logf("[TI] LINE START");
         } else if (cmd == 0x04) {
             g_stop = 0;
+            g_runMode = 0;
             g_ballCmd = 1;
             Web_Logf("[TI] BALL START (Q3)");
         } else if (cmd == 0x05) {
             _t0 = millis();
             g_timerRun = 1;
+            g_runMode = 2;
             g_stop = 0;
             g_ballCmd = 2;
             Web_Logf("[TI] Q4 START");
@@ -84,6 +88,7 @@ void taskTi(void *pv) {
         } else if (cmd == 0x08) {
             _t0 = millis();
             g_timerRun = 1;
+            g_runMode = 3;
             g_stop = 0;
             g_ballCmd = 3;
             Web_Logf("[TI] Q5 START");
