@@ -18,10 +18,19 @@
 #define Q4_SLW        70.0f
 #define INTEGRAL_MAX 1500.0f
 #define Q4_INT_MAX   1600.0f
-#define Q4_BIAS       120.0f
+#define Q4_BIAS       100.0f
 #define Q4_BIAS_MS    3200
 #define Q4_BIAS_PEAK_MS 1000
 #define Q4_BIAS_HOLD  450
+#define Q5_KP         1.6f
+#define Q5_KD         75.0f
+#define Q5_KI         0.13f
+#define Q5_OUT_MAX    1000
+#define Q5_SLW        70.0f
+#define Q5_INT_MAX    1600.0f
+#define Q5_BIAS       30.0f
+#define Q5_BIAS_MS    2400
+#define Q5_BIAS_PEAK_MS 1300
 #define BALL_FILTER   0.5f
 #define DIR_SIGN      1.0f
 
@@ -51,6 +60,9 @@ static uint32_t s_phase2T   = 0;     // ph2: entry time
 static int32_t  s_q4Home    = 0;     // ph4: center-hold steps
 static bool     s_q4BiasDone= false;   // ph4: bias-window flag
 static uint32_t s_q4T0      = 0;     // ph4: start time
+static bool     s_q5Mode    = false;   // ph5: Q5 mode flag
+static bool     s_q4Flow    = false;   // ph4/Q4: use Q5 flow but no bias
+static bool     s_q5Launched= false;   // ph5: launch flag (0x09)
 
 
 void Ball_Init() {
@@ -96,6 +108,12 @@ void Ball_Start() {
 }
 
 void Ball_StartQ4() {
+    // Q4: git-stable params (KP1.3/KD55/KI0.10/BIAS120), bias & pre-tilt from t=0
+    Ball_StartQ5();
+    s_q4Flow = true;
+    Web_Logf("[BALL] Q4 hold center (git params)");
+}
+void Ball_StartQ5() {
     s_phase = 4;
     s_targetX = X_CENTER;
     s_ballF = 0;
@@ -110,14 +128,36 @@ void Ball_StartQ4() {
     s_holdT0 = 0;
     s_doneT = 0;
     s_phase2T = 0;
+    s_q5Mode = true;
+    s_q4Flow = false;
+    s_q5Launched = false;
     s_q4Home = Stepper_GetSteps();
     s_q4T0 = millis();
     s_q4BiasDone = false;
 
     Stepper_Enable(true);
     Stepper_SetTarget(Stepper_GetSteps());
-    Web_Logf("[BALL] Q4 hold center");
+    Web_Logf("[BALL] Q5 hold center v5");
 }
+
+void Ball_LaunchQ5() {
+    if (s_phase == 4 && s_q5Mode && !s_q4Flow) {
+        s_q5Launched = true;
+        s_q4T0 = millis();
+        s_q4BiasDone = false;
+        s_int = 0.0f;
+        Web_Logf("[BALL] Q5 LAUNCH");
+    }
+}
+
+// Q6: keep ball at current position as balance point (reserved, no trigger yet)
+void Ball_StartQ6() {
+    int16_t holdX = s_ballValid ? (int16_t)s_ballF : X_CENTER;
+    Ball_StartQ5();
+    s_targetX = holdX;
+    Web_Logf("[BALL] Q6 hold X=%d (%.1fcm)", holdX, X_CM(holdX));
+}
+
 
 void Ball_Stop() {
     s_phase = 0;
@@ -152,12 +192,18 @@ void Ball_Update(int16_t ballX) {
         if (s_phase == 4) {
             uint32_t el = millis() - s_q4T0;
             float bf = 0.0f;
-            if (el < Q4_BIAS_PEAK_MS) bf = 1.0f;
-            else if (el < Q4_BIAS_MS) bf = 1.0f - (float)(el - Q4_BIAS_PEAK_MS) / (float)(Q4_BIAS_MS - Q4_BIAS_PEAK_MS);
+            bool q5l = s_q5Mode && !s_q4Flow;
+            if (q5l && !s_q5Launched) { }
+            else {
+            uint32_t bPeak = q5l ? Q5_BIAS_PEAK_MS : Q4_BIAS_PEAK_MS;
+            uint32_t bEnd  = q5l ? Q5_BIAS_MS : Q4_BIAS_MS;
+            if (el < bPeak) bf = 1.0f;
+            else if (el < bEnd) bf = 1.0f - (float)(el - bPeak) / (float)(bEnd - bPeak);
             if (bf > 0.0f)
                 Stepper_SetTarget((int32_t)(Q4_BIAS_HOLD * bf));
             else
                 Stepper_SetTarget(s_q4Home);
+            }
         }
 
         bool nearTarget = s_ballValid &&
@@ -229,12 +275,18 @@ void Ball_Update(int16_t ballX) {
         err = (float)(s_targetX) - xf;
         if (s_phase == 4) {
             uint32_t el = millis() - s_q4T0;
-            if (el >= Q4_BIAS_MS) {
+            bool q5b = s_q5Mode && !s_q4Flow;
+            float bias = 0.0f;
+            if (q5b) { if (s_q5Launched) bias = Q5_BIAS; }
+            else    bias = Q4_BIAS;
+            uint32_t bPeak = q5b ? Q5_BIAS_PEAK_MS : Q4_BIAS_PEAK_MS;
+            uint32_t bEnd  = q5b ? Q5_BIAS_MS : Q4_BIAS_MS;
+            if (el >= bEnd) {
                 if (!s_q4BiasDone) { s_q4BiasDone = true; s_int = 0.0f; }
                 if (fabsf(err) < 10.0f) { err = 0.0f; s_q4Home = (int32_t)s_lastOut; }
             }
-            if (el < Q4_BIAS_PEAK_MS) err += Q4_BIAS;
-            else if (el < Q4_BIAS_MS) err += Q4_BIAS * (1.0f - (float)(el - Q4_BIAS_PEAK_MS) / (float)(Q4_BIAS_MS - Q4_BIAS_PEAK_MS));
+            if (el < bPeak) err += bias;
+            else if (el < bEnd) err += bias * (1.0f - (float)(el - bPeak) / (float)(bEnd - bPeak));
         }
         if (s_phase == 3) {
             if (fabsf(err) <= 40.0f) s_int += err;
@@ -244,7 +296,7 @@ void Ball_Update(int16_t ballX) {
         } else {
             s_int *= 0.9f;
         }
-        float imax = (s_phase == 4) ? Q4_INT_MAX : INTEGRAL_MAX;
+        float imax = (s_phase == 4) ? (s_q5Mode && !s_q4Flow ? Q5_INT_MAX : Q4_INT_MAX) : INTEGRAL_MAX;
         if (s_int >  imax) s_int =  imax;
         if (s_int < -imax) s_int = -imax;
 
@@ -252,17 +304,17 @@ void Ball_Update(int16_t ballX) {
         if (derr >  DERIV_MAX) derr =  DERIV_MAX;
         if (derr < -DERIV_MAX) derr = -DERIV_MAX;
 
-        float kp = (s_phase == 4) ? Q4_KP : PID_KP;
-        float kd = (s_phase == 4) ? Q4_KD
+        float kp = (s_phase == 4) ? (s_q5Mode && !s_q4Flow ? Q5_KP : Q4_KP) : PID_KP;
+        float kd = (s_phase == 4) ? (s_q5Mode && !s_q4Flow ? Q5_KD : Q4_KD)
                  : ((s_phase == 2 && fabsf(err) > PID_KD2_END) ? PID_KD2 : PID_KD);
-        float ki = (s_phase == 4) ? Q4_KI : PID_KI;
+        float ki = (s_phase == 4) ? (s_q5Mode && !s_q4Flow ? Q5_KI : Q4_KI) : PID_KI;
         out = DIR_SIGN * (kp * err + kd * derr + ki * s_int);
         s_lastErr = err;
 
-        float slw = (s_phase == 4) ? Q4_SLW : SLW_MAX;
+        float slw = (s_phase == 4) ? (s_q5Mode && !s_q4Flow ? Q5_SLW : Q4_SLW) : SLW_MAX;
         if (out >  s_lastOut + slw) out = s_lastOut + slw;
         if (out <  s_lastOut - slw) out = s_lastOut - slw;
-        float omax = (s_phase == 4) ? Q4_OUT_MAX : OUT_MAX;
+        float omax = (s_phase == 4) ? (s_q5Mode && !s_q4Flow ? Q5_OUT_MAX : Q4_OUT_MAX) : OUT_MAX;
         if (out >  omax) out =  omax;
         if (out < -omax) out = -omax;
         s_lastOut = out;

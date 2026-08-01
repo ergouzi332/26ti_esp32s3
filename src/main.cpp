@@ -1,4 +1,4 @@
-﻿#include <Arduino.h>
+#include <Arduino.h>
 #include "oled.h"
 #include "uart.h"
 #include "k230.h"
@@ -9,6 +9,7 @@
 volatile uint8_t  g_stop     = 1;
 volatile uint8_t  g_timerRun = 0;
 volatile uint8_t  g_ballCmd  = 0;
+volatile uint8_t  g_ballLaunch = 0;
 volatile uint16_t g_runMs    = 0;
 unsigned long     _t0       = 0;
 volatile int16_t  g_ballX   = K230_LOST;
@@ -31,23 +32,26 @@ void taskTi(void *pv) {
         if (g_webCmd) {
             cmd = g_webCmd;
             g_webCmd = 0;
-        } else if (Serial2.available()) {
-            uint8_t c = (uint8_t)Serial2.read();
-            if (c == 0x01 || c == 0x02 || c == 0x03 || c == 0x04 || c == 0x05 || c == 0x06 || c == 0x07) {
-                cmd = c;
-            } else if (c == '\r' || c == '\n') {
-                if (txtLen) { txtBuf[txtLen] = 0; Web_Logf("[TI] %s", txtBuf); txtLen = 0; }
-            } else if (txtLen < sizeof(txtBuf) - 1) {
-                txtBuf[txtLen++] = (char)c;
+        } else {
+            while (Serial2.available()) {
+                uint8_t c = (uint8_t)Serial2.read();
+                if (c == 0x01 || c == 0x02 || c == 0x03 || c == 0x04 || c == 0x05 || c == 0x06 || c == 0x07 || c == 0x08 || c == 0x09) {
+                    cmd = c;
+                } else if (c == '\r' || c == '\n') {
+                    if (txtLen) { txtBuf[txtLen] = 0; Web_Logf("[TI] %s", txtBuf); txtLen = 0; }
+                } else if (txtLen < sizeof(txtBuf) - 1) {
+                    txtBuf[txtLen++] = (char)c;
+                }
             }
-        } else if (Serial.available()) {
-            uint8_t c = (uint8_t)Serial.read();
-            if (c == '1')      cmd = 0x01;
-            else if (c == '2') cmd = 0x02;
-            else if (c == '4') cmd = 0x04;
+            if (!cmd && Serial.available()) {
+                uint8_t c = (uint8_t)Serial.read();
+                if (c == '1')      cmd = 0x01;
+                else if (c == '2') cmd = 0x02;
+                else if (c == '4') cmd = 0x04;
 #if STEPPER_TEST_MODE
-            else if (c >= '3' && c <= '8') g_ampCmd = c;
+                else if (c >= '3' && c <= '8') g_ampCmd = c;
 #endif
+            }
         }
 
         if (cmd && txtLen) {
@@ -77,6 +81,15 @@ void taskTi(void *pv) {
         } else if (cmd == 0x07) {
             g_timerRun = 0;
             Web_Logf("[TI] Q4 B PASS t=%ums", (unsigned)(millis() - _t0));
+        } else if (cmd == 0x08) {
+            _t0 = millis();
+            g_timerRun = 1;
+            g_stop = 0;
+            g_ballCmd = 3;
+            Web_Logf("[TI] Q5 START");
+        } else if (cmd == 0x09) {
+            g_ballLaunch = 1;
+            Web_Logf("[TI] Q5 LAUNCH");
         } else if (cmd == 0x02) {
             g_stop = 1;
             g_timerRun = 0;
@@ -228,6 +241,12 @@ void taskBall(void *pv) {
             lastStop = g_stop;
             if (bc == 1) Ball_Start();
             else if (bc == 2) Ball_StartQ4();
+            else if (bc == 3) Ball_StartQ5();
+            else if (bc == 4) Ball_StartQ6();  // Q6 reserved (no trigger yet)
+        }
+        if (g_ballLaunch) {
+            g_ballLaunch = 0;
+            Ball_LaunchQ5();
         }
 
         if (g_stop != lastStop) {

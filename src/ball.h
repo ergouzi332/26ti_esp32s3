@@ -32,6 +32,9 @@
 void Ball_Init();
 void Ball_Start();               // 第三问：O -> +5cm -> -5cm
 void Ball_StartQ4();
+void Ball_StartQ5();
+void Ball_StartQ6();  // Q6: hold current ball pos as target (reserved)
+void Ball_LaunchQ5();
 void Ball_Stop();                // 停止（摆杆回水平）
 void Ball_Update(int16_t ballX); // 每20ms调用：钢球位置闭环
 bool Ball_IsDone();              // 是否已稳定在 -5cm
